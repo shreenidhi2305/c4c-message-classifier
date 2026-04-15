@@ -2,12 +2,11 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
-
-app = FastAPI()
-
 import os
 import zipfile
 import gdown
+
+app = FastAPI()
 
 MODEL_PATH = "model"
 
@@ -26,9 +25,13 @@ if not os.path.exists(MODEL_PATH):
 
     print("Model ready!")
 
-# Load model (runs once)
-tokenizer = AutoTokenizer.from_pretrained("./model")
-model = AutoModelForSequenceClassification.from_pretrained("./model")
+# 🔥 Load once
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+
+# ✅ Critical optimizations
+model.eval()
+torch.set_num_threads(1)  # better for small CPUs like Render
 
 labels = ["Collaboration", "Issue", "Question"]
 
@@ -41,8 +44,18 @@ def home():
 
 @app.post("/classify")
 def classify(input: InputText):
-    inputs = tokenizer(input.text, return_tensors="pt", truncation=True, padding=True)
-    outputs = model(**inputs)
+
+    # Tokenize efficiently (NO unnecessary padding)
+    inputs = tokenizer(
+        input.text,
+        return_tensors="pt",
+        truncation=False,   # as you requested
+        padding=False
+    )
+
+    # 🚀 Disable gradients (BIG speed boost)
+    with torch.no_grad():
+        outputs = model(**inputs)
 
     pred = torch.argmax(outputs.logits, dim=1).item()
 
@@ -54,7 +67,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # later restrict
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
